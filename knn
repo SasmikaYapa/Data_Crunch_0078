@@ -24,7 +24,7 @@ for col in categorical_columns:
 # Define target variables
 targets = ["Avg_Temperature", "Radiation", "Rain_Amount", "Wind_Speed", "Wind_Direction"]
 
-# Select features (only columns present in both train & test)
+# Select features 
 features = [col for col in train_df.columns if col in test_df.columns and col not in ["ID"] + targets]
 
 # Handle missing values (fill with median)
@@ -59,4 +59,4 @@ for target, score in r2_scores.items():
 
 # Save submission file
 submission.to_csv("submission_knn.csv", index=False)
-print("\n✅ Submission saved as submission_knn.csv")
+print("\nSubmission saved as submission_knn.csv")
