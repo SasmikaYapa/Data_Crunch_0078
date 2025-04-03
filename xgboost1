@@ -1,0 +1,80 @@
+import pandas as pd
+import numpy as np
+from sklearn.model_selection import train_test_split
+from sklearn.preprocessing import LabelEncoder
+from sklearn.metrics import r2_score
+from xgboost import XGBRegressor
+
+# Load datasets
+train_df = pd.read_excel(r"C:\Users\User\Downloads\processed_train.xlsx")
+test_df = pd.read_excel(r"C:\Users\User\Downloads\data-crunch-round-1\test.xlsx")
+sample_submission = pd.read_csv(r"C:\Users\User\Downloads\data-crunch-round-1\sample_submission.csv")
+
+# Ensure 'kingdom' column exists before encoding
+if "kingdom" in train_df.columns and "kingdom" in test_df.columns:
+    le = LabelEncoder()
+    train_df["kingdom_encoded"] = le.fit_transform(train_df["kingdom"].astype(str))
+    test_df["kingdom_encoded"] = test_df["kingdom"].apply(lambda x: le.transform([x])[0] if x in le.classes_ else -1)
+else:
+    raise ValueError("The 'kingdom' column is missing in one of the datasets.")
+
+# Fill missing values in test data using historical means
+historical_means = train_df.groupby(["Year", "Month", "Day"]).mean(numeric_only=True).reset_index()
+test_df = test_df.merge(historical_means, on=["Year", "Month", "Day"], how="left")
+
+# Define target variables and features
+target_vars = ["Avg_Temperature", "Radiation", "Rain_Amount", "Wind_Speed", "Wind_Direction"]
+common_features = ["Year", "Month", "Day", "kingdom_encoded"]
+optional_features = ["latitude", "longitude", "Temperature_Range", "Rain_Duration"]
+
+features_to_keep = [col for col in common_features + optional_features if col in train_df.columns and col in test_df.columns]
+
+X = train_df[features_to_keep]
+y = train_df[target_vars]
+test_features = test_df[features_to_keep]
+
+# Train-test split
+X_train, X_val, y_train, y_val = train_test_split(X, y, test_size=0.2, random_state=42, shuffle=False)
+
+# Optimized hyperparameters for XGBoost
+optimized_params = {
+    "n_estimators": 300,
+    "learning_rate": 0.05,
+    "max_depth": 8,
+    "colsample_bytree": 0.8,
+    "eval_metric": "rmse",
+    "random_state": 42
+}
+
+predictions = {}
+models = {}
+r2_scores = {}
+
+# Train models, predict, and calculate R² scores
+for target in target_vars:
+    model = XGBRegressor(**optimized_params)
+    model.fit(X_train, y_train[target], eval_set=[(X_val, y_val[target])], verbose=False)
+    models[target] = model
+
+    # Predict on validation set and calculate R² score
+    val_predictions = model.predict(X_val)
+    r2_scores[target] = r2_score(y_val[target], val_predictions)
+
+    # Predict on test set
+    predictions[target] = model.predict(test_features)
+
+# Ensure the 'ID' column exists; if not, create it
+test_df["ID"] = test_df.get("ID", pd.Series(range(1, len(test_df) + 1)))
+submission = test_df[["ID"]].copy()
+
+for target in target_vars:
+    submission[target] = predictions[target]
+
+# Save submission file
+submission.to_csv("submission4.csv", index=False)
+print("✅ Submission file saved as submission4.csv")
+
+# Print R² scores for each target variable
+print("\n Model Performance (R² Scores on Validation Set):")
+for target, score in r2_scores.items():
+    print(f"{target}: R² = {score:.4f}")
